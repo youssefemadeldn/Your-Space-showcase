@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://apps.apple.com/us/app/your-space-gifts-events/id6797512595"><img src="https://img.shields.io/badge/App%20Store-Download-0D96F6?style=for-the-badge&logo=appstore&logoColor=white" alt="Download on the App Store"></a>
+<a href="https://apps.apple.com/us/app/your-space-gifts-events/id6797512595"><img src="https://img.shields.io/badge/App%20Store-Download-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="Download on the App Store"></a>
 
 # 🔒 Your Space — Showcase Repository
 
