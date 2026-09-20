@@ -174,6 +174,10 @@
 <img src="Your-Space-Mobile/doc/design/screenshots/26-reciprocity-suggestions.png" width="180" alt="Reciprocity suggestions"><br>
 <sub>Reciprocity suggestions</sub>
 </td>
+<td align="center" width="200">
+<img src="Your-Space-Mobile/doc/design/screenshots/27-photo-viewer.png" width="180" alt="Full-screen photo viewer (tap a photo avatar)"><br>
+<sub>Photo viewer</sub>
+</td>
 </tr>
 </table>
 
