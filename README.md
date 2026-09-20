@@ -1,5 +1,7 @@
 <div align="center">
 
+<a href="https://apps.apple.com/us/app/your-space-gifts-events/id6797512595"><img src="https://img.shields.io/badge/App%20Store-Download-0D96F6?style=for-the-badge&logo=appstore&logoColor=white" alt="Download on the App Store"></a>
+
 # 🔒 Your Space — Showcase Repository
 
 ### This repo documents a real client project. The source code is private and stays that way.
@@ -117,7 +119,7 @@
 <sub>Add person — step 3/4</sub>
 </td>
 <td align="center" width="200">
-<img src="Your-Space-Mobile/doc/design/screenshots/15-add-person-wizard-step4.png" width="180" alt="Add person wizard — step 4 of 4 (notes)"><br>
+<img src="Your-Space-Mobile/doc/design/screenshots/15-add-person-wizard-step4.png" width="180" alt="Add person wizard — step 4 of 4 (notes and Facebook URL)"><br>
 <sub>Add person — step 4/4</sub>
 </td>
 </tr>
@@ -212,12 +214,14 @@ Your-Space/
 │   └── CLAUDE.md + .claude/rules/    backend-specific standards (authoritative for this folder)
 └── Your-Space-Mobile/          # Flutter app — see its own README.md
     ├── lib/
-    │   ├── core/                    shared infrastructure (DI, networking, routing, theme)
+    │   ├── core/                    shared infrastructure (DI, networking, routing, theme,
+    │   │                             local drift database, offline sync engine)
     │   └── features/                 auth, onboarding, home, groups, people, classification,
     │                                 events, settings (feature-first, Clean Architecture)
     ├── test/                        mirrors lib/ structure
     ├── assets/translations/          en.json, ar.json (easy_localization)
     ├── doc/handoffs/                 dated engineering handoff notes
+    ├── doc/local-first-sync-design.md  design of the local-first sync mechanism
     ├── doc/design/                    exported design prototypes (Auth Flow, Core Screens,
     │                                   Event Screens `.dc.html`) + design-conformance-fixes.md
     │                                   drift log between the prototypes and shipped code
@@ -236,6 +240,8 @@ Your-Space/
 | Mobile framework | Flutter **3.44.8** (pinned via FVM), Dart `^3.12.2` | `.fvmrc`, `pubspec.yaml` |
 | Mobile state management | `flutter_bloc` (Cubit) **^9.1.1** | `pubspec.yaml` |
 | Mobile DI | `get_it` + `injectable` | `pubspec.yaml` |
+| Mobile local database | `drift` **^2.35.0** + `drift_flutter` **^0.3.1** (on-device SQLite) — offline cache and write queue | `pubspec.yaml`, `lib/core/database/` |
+| Mobile connectivity | `connectivity_plus` **^7.3.1** — triggers the sync engine on reconnect | `pubspec.yaml`, `lib/core/sync/sync_service.dart` |
 | Cross-cutting | Bilingual (English/Arabic, RTL-aware) end to end | both `CLAUDE.md` files, Architecture rule 8 (backend) |
 
 Full dependency lists with every package and version live in each project's own README — Backend tech stack / Mobile tech stack.
@@ -248,13 +254,14 @@ The full-stack feature set, as actually implemented (backend controllers + mobil
 - **Onboarding** — first-run onboarding carousel before the app lands on Home.
 - **Home dashboard** — at-a-glance stats screen (`HomeStatsCubit`) showing Groups/People/Events counts with an empty state and quick-nav cards into each section.
 - **Groups & sub-groups** — CRUD for contact circles, plus nested sub-groups within a group (`groups/{id}/subgroups`), searchable and paginated.
-- **People** — CRUD for personal contacts, each assigned to a Group, via a multi-step person wizard (basic identity → classification & location → relationships → notes). Includes server-side person search, inline "+ Add new" creation of a Group/Sub-group/Governorate/City/Neighborhood directly from the wizard's picker steps without leaving the flow, and multiple profile photos per person (`persons/{id}/images`).
+- **People** — CRUD for personal contacts, each assigned to a Group, via a multi-step person wizard (basic identity → classification & location → relationships → notes). Includes server-side person search, inline "+ Add new" creation of a Group/Sub-group/Governorate/City/Neighborhood directly from the wizard's picker steps without leaving the flow, and multiple profile photos per person (`persons/{id}/images`). A person can also carry an optional Facebook profile URL (entered on the wizard's Notes step, shown as a tappable link on their details screen), and tapping any real photo avatar opens it full-screen (pinch-to-zoom).
 - **Person relationships** — link people to one another with a typed relationship (`persons/{id}/relationships`), editable inline in the wizard.
 - **Location reference data** — a Governorate → City → Neighborhood hierarchy (`governorates`, `governorates/{id}/cities`, `cities/{id}/neighborhoods`), used to tag a person's location and to slice guest lists by area.
 - **Events** — CRUD for occasions being planned, with a live guest-count breakdown (not invited / invited / skipped).
 - **Guest-List / Invitation Planner** — bulk-add to an Event by People, Group, Sub-group, Governorate, City, or Neighborhood; per-guest status transitions (invite / skip / revert); and a progress summary per event.
 - **Reciprocity** — a per-person log of past occasions where *they* invited the user, plus a "reciprocity suggestions" endpoint/screen surfacing contacts who've invited the user before but haven't been added to the current event yet.
 - **User settings & profile** — profile edit (name, avatar), and account deletion, on both sides. The backend also exposes per-user preference flags (e.g. toggling reciprocity suggestions) via `usersettings`, but the mobile Settings screen does not yet surface a toggle for it — that endpoint currently has no mobile UI.
+- **Local-first sync (mobile)** — the app keeps a local SQLite database (`drift`) and reads from it first, so lists and details open instantly and work offline. Writes are applied locally right away and queued in an outbox that is replayed to the API with retry/backoff on reconnect and while the app is in the foreground; the client then pulls only what changed via cursor-based delta endpoints (`GET persons|groups|events|governorates|cities|subgroups|neighborhoods/changes`, taking `since` and `pageSize`). Covers People, Groups, the Governorate/City/Sub-group/Neighborhood reference data, Events, event guests, person relationships and person photos; conflicts resolve last-write-wins (the data is single-owner). Auth and Settings stay network-only. Mechanism: Your-Space-Mobile/doc/local-first-sync-design.md.
 - **Role-based access control** — `User` / `StandardAdmin` / `SuperAdmin` hierarchy on the backend, with a bootstrap SuperAdmin seeder.
 - **Bilingual (EN/AR) throughout** — every user-facing entity field and every response/validation message on the backend has an Arabic counterpart resolved server-side; the mobile app mirrors this with `easy_localization` and RTL-aware layout primitives end to end.
 
@@ -302,13 +309,13 @@ The mobile app's `ApiConstants.baseUrl` (`Your-Space-Mobile/lib/core/constants/a
 Each project owns its own architecture, enforced independently and never blended (per the root `CLAUDE.md`):
 
 - **Backend** — strict layered architecture (`WebAPI → Services → Repository → Data`), physically split into separate class-library projects, with `NetArchTest` assertions enforcing the layer direction and DTO purity in CI-less local test runs. See Backend architecture.
-- **Mobile** — Clean Architecture, feature-first (`presentation → domain → data` per feature, `lib/core/` for shared infrastructure), with features never importing from other features. See Mobile architecture.
+- **Mobile** — Clean Architecture, feature-first (`presentation → domain → data` per feature, `lib/core/` for shared infrastructure), with features never importing from other features. Data is local-first: each synced feature reads from an on-device drift database (`lib/core/database/`) and writes through an outbox managed by the sync engine in `lib/core/sync/` (`SyncService`, per-feature outbox replayers and collection pullers). See Mobile architecture.
 
 The two communicate over a single contract: a versioned (`/api/v1/...`) JSON REST API with a uniform `{ success, message, errorCode, data, statusCode, timestamp, errors }` response envelope, produced by the backend's `ServiceResult<T>` and consumed by the mobile app's `unwrapServiceResult`/`ApiManager`.
 
 ## API surface
 
-Base path: `/api/v{version}/...` (currently v1), Bearer JWT auth, EN/AR via `Accept-Language`. Endpoint groups: `auth`, `groups` (+ nested `groups/{id}/subgroups`), `persons` (+ nested `persons/{id}/images`, `persons/{id}/relationships`, `persons/{id}/occasion-history`), `events` (+ nested `events/{id}/guests`), `governorates` (+ nested `governorates/{id}/cities` and `cities/{id}/neighborhoods`), `usersettings`. Full endpoint-by-endpoint tables (methods, routes, DTOs): Backend API overview.
+Base path: `/api/v{version}/...` (currently v1), Bearer JWT auth, EN/AR via `Accept-Language`. Endpoint groups: `auth`, `groups` (+ nested `groups/{id}/subgroups`), `persons` (+ nested `persons/{id}/images`, `persons/{id}/relationships`, `persons/{id}/occasion-history`), `events` (+ nested `events/{id}/guests`), `governorates` (+ nested `governorates/{id}/cities` and `cities/{id}/neighborhoods`), `usersettings`. Seven collections also expose a delta-sync pull, `GET …/changes?since=&pageSize=` (`persons`, `groups`, `events`, `governorates`, `cities`, `subgroups`, `neighborhoods`), which the mobile sync engine uses to fetch only what changed. Full endpoint-by-endpoint tables (methods, routes, DTOs): Backend API overview.
 
 ## Environment & secrets
 
@@ -319,9 +326,9 @@ Neither project commits real secrets. The backend uses `dotnet user-secrets` loc
 | Project | Framework | What's covered |
 |---|---|---|
 | Backend | xUnit + `NetArchTest` | Unit tests per service method, `WebApplicationFactory` integration tests per controller, architecture/layering assertions |
-| Mobile | `flutter_test` + `mocktail` | 53 test files mirroring `lib/`: router, storage, widgets, and per-feature repository/cubit/screen tests |
+| Mobile | `flutter_test` + `mocktail` | 104 test files mirroring `lib/`: router, storage, widgets, and per-feature repository/cubit/screen tests |
 
-Run each project's suite from inside its own folder — `dotnet test` (backend) / `flutter test` (mobile). File counts above are `find … -name` counts as of this writing (97 files under `Your-Space-Backend/YourSpace.WebAPI.Tests/`, 53 `*_test.dart` under `Your-Space-Mobile/test/`) and drift over time — treat them as indicative. Details: Backend testing / Mobile testing.
+Run each project's suite from inside its own folder — `dotnet test` (backend) / `flutter test` (mobile). File counts above are `find … -name` counts as of this writing (113 `.cs` files under `Your-Space-Backend/YourSpace.WebAPI.Tests/` excluding `bin`/`obj`, 104 `*_test.dart` under `Your-Space-Mobile/test/`) and drift over time — treat them as indicative. Details: Backend testing / Mobile testing.
 
 ## CI/CD
 
@@ -336,6 +343,8 @@ The repo-root `doc/` folder collects docs that span both projects:
 - **`doc/release-notes/`** — one numbered folder per shipped mobile version, `001_v1.0.0+4` through `007_v5.0.1+10`, each holding the Play Store release note (EN + AR) for that version.
 - **`doc/reports/`** — one-off audits (currently `account-deletion-audit-2026-09-01.md`).
 
+The mobile app's local-first sync work is documented in `Your-Space-Mobile/doc/local-first-sync-design.md` (the mechanism) and the `005-local-first-sync/` handoffs under `Your-Space-Mobile/doc/handoffs/` (delivery-plan rows 1–10, all shipped). Note the design doc's opening "Status" line still reads "approved direction, not yet built" — it predates the build; the handoffs are the record of what shipped.
+
 Each project *also* keeps its own dated handoff notes under `Your-Space-Backend/doc/handoffs/` and `Your-Space-Mobile/doc/handoffs/`, written at the time a feature landed. Treat anything time-sensitive in any `doc/` folder as a historical snapshot, not current state — the two project READMEs and the code itself are the source of truth.
 
 ## Contributing
@@ -344,14 +353,15 @@ Governed by the root `CLAUDE.md`:
 
 - Each project's own `CLAUDE.md` (plus its `.claude/rules/`, `.claude/templates/`) is the authority for everything inside its folder — never apply the backend's architecture rules/naming/anti-patterns to the mobile app or vice versa, even where a section name matches (e.g. both have a "Testing discipline" section that means something different in each).
 - A task that spans both projects (e.g. a new backend endpoint plus the mobile screen that calls it) should keep each half strictly inside its own project's conventions rather than blending them into one style.
-- Commit convention observed in history: scoped conventional-commit prefixes — `feat:`, `fix:`, `chore:`, `docs:`, `test:` — optionally suffixed with a project scope (e.g. `fix(backend):`, `feat(backend):`, `test(backend):`); plain imperative messages appear occasionally otherwise.
+- Commit convention observed in history: scoped conventional-commit prefixes — `feat:`, `fix:`, `refactor:`, `style:`, `chore:`, `docs:`, `test:` — optionally suffixed with a project scope (e.g. `fix(backend):`, `feat(backend):`, `test(backend):`); plain imperative messages also appear regularly (roughly a third of the last 60 commits).
 - Adding a new project (e.g. a web frontend): give it its own top-level folder with its own `CLAUDE.md` + `.claude/rules/` + `.claude/templates/`, and add a row to the table in the root `CLAUDE.md`.
 
 ## Known limitations / TODO
 
 - No automated CI/CD pipeline for either project.
-- No `LICENSE` file anywhere in the repo — see License.
+- No `LICENSE` file anywhere in the repo — see [License](#license).
 - No orchestration (Docker Compose, etc.) to run backend + database + mobile together with one command — each is started independently today.
+- Local-first sync resolves conflicts last-write-wins only (no merge), by design for single-owner data; Auth and Settings are deliberately network-only, and the person-details and event-details screens still refresh through a one-shot fetch plus the `DataRefreshBus` signal rather than reactive local streams.
 - See each project's own README for project-specific gaps (Backend / Mobile).
 
 ## License
